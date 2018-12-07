@@ -50,6 +50,13 @@ type ReadOptions struct {
 	// StopAtag defines a tag at which when read (or a tag with a greater
 	// value than it is read), the program will stop parsing the dicom file.
 	StopAtTag *dicomtag.Tag
+
+	// DICOM header is missing, skip reading header and metadata
+	// (assuming first attempt failed).
+	AssumeMissingHeader bool
+
+	BodyDefaultByteOrder *binary.ByteOrder
+	BodyDefaultVR        *dicomio.IsImplicitVR
 }
 
 // ReadDataSetInBytes is a shorthand for ReadDataSet(bytes.NewBuffer(data), len(data)).
@@ -86,19 +93,35 @@ func ReadDataSetFromFile(path string, options ReadOptions) (*DataSet, error) {
 // parsable, and error will show the first error found by the parser.
 func ReadDataSet(in io.Reader, options ReadOptions) (*DataSet, error) {
 	buffer := dicomio.NewDecoder(in, binary.LittleEndian, dicomio.ExplicitVR)
-	metaElems := ParseFileHeader(buffer)
-	if buffer.Error() != nil {
-		return nil, buffer.Error()
-	}
-	file := &DataSet{Elements: metaElems}
 
-	// Change the transfer syntax for the rest of the file.
-	endian, implicit, err := getTransferSyntax(file)
-	if err != nil {
-		return nil, err
+	var file = &DataSet{}
+
+	if !options.AssumeMissingHeader {
+		metaElems := ParseFileHeader(buffer)
+		if buffer.Error() != nil {
+			return nil, buffer.Error()
+		}
+		file.Elements = metaElems
+		endian, implicit, err := getTransferSyntax(file)
+		if err != nil {
+			return nil, err
+		}
+		// Change the transfer syntax for the rest of the file.
+		buffer.PushTransferSyntax(endian, implicit)
+		defer buffer.PopTransferSyntax()
+	} else {
+		// If we're skipping the header, set byte order and VR to sane defaults with override via options
+		var endian binary.ByteOrder = binary.LittleEndian
+		var implicit = dicomio.ImplicitVR
+		if options.BodyDefaultByteOrder != nil {
+			endian = *options.BodyDefaultByteOrder
+		}
+		if options.BodyDefaultVR != nil {
+			implicit = *options.BodyDefaultVR
+		}
+		buffer.PushTransferSyntax(endian, implicit)
+		defer buffer.PopTransferSyntax()
 	}
-	buffer.PushTransferSyntax(endian, implicit)
-	defer buffer.PopTransferSyntax()
 
 	// Read the list of elements.
 	for !buffer.EOF() {
