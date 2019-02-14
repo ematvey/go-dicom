@@ -46,9 +46,15 @@ func WriteFileHeader(e *dicomio.Encoder, metaElems []*Element) {
 		}
 		tagsUsed[tag] = true
 	}
+	writeMetaElemIfPresent := func(tag dicomtag.Tag) {
+		if elem, err := FindElementByTag(metaElems, tag); err == nil {
+			WriteElement(subEncoder, elem)
+			tagsUsed[tag] = true
+		}
+	}
 	writeOptionalMetaElem(dicomtag.FileMetaInformationVersion, []byte("0 1"))
-	writeRequiredMetaElem(dicomtag.MediaStorageSOPClassUID)
-	writeRequiredMetaElem(dicomtag.MediaStorageSOPInstanceUID)
+	writeMetaElemIfPresent(dicomtag.MediaStorageSOPClassUID)
+	writeMetaElemIfPresent(dicomtag.MediaStorageSOPInstanceUID)
 	writeRequiredMetaElem(dicomtag.TransferSyntaxUID)
 	writeOptionalMetaElem(dicomtag.ImplementationClassUID, GoDICOMImplementationClassUID)
 	writeOptionalMetaElem(dicomtag.ImplementationVersionName, GoDICOMImplementationVersionName)
